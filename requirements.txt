@@ -1,0 +1,4 @@
+pandas
+pgeocode
+folium
+requests
