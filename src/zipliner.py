@@ -34,46 +34,84 @@ def zip_to_latlon(plz, country):
         raise ValueError(f"ZIP {z} in {cc} not found!")
     return float(r.latitude), float(r.longitude), r.place_name, cc
 
-def osrm_route(latlon1, latlon2):
+def osrm_route(latlon1, latlon2, attempts=3, timeout=20):
     (lat1, lon1), (lat2, lon2) = latlon1, latlon2
     url = (
         "https://router.project-osrm.org/route/v1/driving/"
         f"{lon1},{lat1};{lon2},{lat2}?overview=full&geometries=geojson"
     )
-    resp = requests.get(url, timeout=20)
-    resp.raise_for_status()
-    coords = resp.json()["routes"][0]["geometry"]["coordinates"]  # [lon, lat]
-    return [[lat, lon] for lon, lat in coords]
+    last_err = None
+    for _ in range(attempts):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            resp.raise_for_status()
+            data = resp.json()
+            routes = data.get("routes", [])
+            if not routes:
+                raise ValueError("No route returned by OSRM")
+            coords = routes[0]["geometry"]["coordinates"]  # [lon, lat]
+            return [[lat, lon] for lon, lat in coords]
+        except Exception as e:
+            last_err = e
+            # retry
+            continue
+    raise RuntimeError(f"OSRM failed after {attempts} attempts: {last_err}")
 
 # Create map
 m = folium.Map(location=[47.3, 9.1], zoom_start=7, tiles="OpenStreetMap")
 palette = ["blue","red","green","purple","orange","darkred","cadetblue","darkgreen","darkblue","black"]
 all_points = []
+failures = []
 
 for idx, row in df.iterrows():
+    rownum = idx + 2  # header is row 1
     s_zip = row["source_zip"]
     s_ctry = row["source_country"]
     d_zip = row["destination_zip"]
     d_ctry = row["destination_country"]
 
-    lat1, lon1, name1, c1 = zip_to_latlon(s_zip, s_ctry)
-    lat2, lon2, name2, c2 = zip_to_latlon(d_zip, d_ctry)
+    try:
+        lat1, lon1, name1, c1 = zip_to_latlon(s_zip, s_ctry)
+        lat2, lon2, name2, c2 = zip_to_latlon(d_zip, d_ctry)
 
-    folium.Marker([lat1, lon1], tooltip=f"{s_zip} {c1} – {name1}").add_to(m)
-    folium.Marker([lat2, lon2], tooltip=f"{d_zip} {c2} – {name2}").add_to(m)
+        folium.Marker([lat1, lon1], tooltip=f"{s_zip} {c1} – {name1}").add_to(m)
+        folium.Marker([lat2, lon2], tooltip=f"{d_zip} {c2} – {name2}").add_to(m)
 
-    if USE_ROUTING:
-        line = osrm_route((lat1, lon1), (lat2, lon2))
-    else:
-        line = [[lat1, lon1], [lat2, lon2]]
+        if USE_ROUTING:
+            line = osrm_route((lat1, lon1), (lat2, lon2))
+        else:
+            line = [[lat1, lon1], [lat2, lon2]]
 
-    color = palette[idx % len(palette)]
-    folium.PolyLine(line, weight=4, tooltip=f"{s_zip} {c1} → {d_zip} {c2}", color=color).add_to(m)
+        color = palette[idx % len(palette)]
+        folium.PolyLine(
+            line,
+            weight=4,
+            tooltip=f"{s_zip} {c1} → {d_zip} {c2}",
+            color=color
+        ).add_to(m)
 
-    all_points.extend([[lat1, lon1], [lat2, lon2]])
+        all_points.extend([[lat1, lon1], [lat2, lon2]])
+
+    except Exception as e:
+        failures.append({
+            "row_number": rownum,
+            "source_zip": s_zip,
+            "source_country": s_ctry,
+            "destination_zip": d_zip,
+            "destination_country": d_ctry,
+            "error": str(e)
+        })
+        continue
 
 if all_points:
     m.fit_bounds(all_points, padding=(30, 30))
-
 m.save("map.html")
+
+if failures:
+    print(f"\nCompleted with warnings: {len(failures)} row(s) failed, {len(df) - len(failures)} succeeded.")
+    pd.DataFrame(failures).to_csv("zipliner_failures.csv", index=False, sep=';')
+    print("Details written to 'zipliner_failures.csv'.")
+else:
+    print(f"\nAll good: processed {len(df)} row(s) successfully.")
+
 print("Done! Open 'map.html' in your browser.")
