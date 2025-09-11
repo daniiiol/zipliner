@@ -4,7 +4,6 @@ import pgeocode
 import folium
 import requests
 import colorsys
-import random
 
 CSV_PATH = "src/zipliner_routes_sample_004.csv"
 USE_ROUTING = False  # True = Routes (OSRM), False = as the crow flies
