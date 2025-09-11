@@ -3,6 +3,8 @@ import pandas as pd
 import pgeocode
 import folium
 import requests
+import colorsys
+import random
 
 CSV_PATH = "src/zipliner_routes_sample_004.csv"
 USE_ROUTING = False  # True = Routes (OSRM), False = as the crow flies
@@ -57,9 +59,18 @@ def osrm_route(latlon1, latlon2, attempts=3, timeout=20):
             continue
     raise RuntimeError(f"OSRM failed after {attempts} attempts: {last_err}")
 
+def random_color_palette(n):
+    palette = []
+    for i in range(n):
+        # Evenly distribute hues for higher difference
+        h = i / n
+        rgb = colorsys.hsv_to_rgb(h, 0.7, 0.75)
+        palette.append('#' + ''.join(f'{int(c*255):02x}' for c in rgb))
+    return palette
+
 # Create map
 m = folium.Map(location=[47.3, 9.1], zoom_start=7, tiles="OpenStreetMap")
-palette = ["blue","red","green","purple","orange","darkred","cadetblue","darkgreen","darkblue","black"]
+palette = random_color_palette(len(df))
 all_points = []
 failures = []
 
@@ -91,6 +102,8 @@ for idx, row in df.iterrows():
         ).add_to(m)
 
         all_points.extend([[lat1, lon1], [lat2, lon2]])
+        
+        print(f"Row {rownum}: {s_zip} {c1} → {d_zip} {c2} OK")
 
     except Exception as e:
         failures.append({
