@@ -5,7 +5,7 @@ import folium
 import requests
 import colorsys
 
-CSV_PATH = "src/zipliner_routes_sample_004.csv"
+CSV_PATH = "zipliner_routes_sample_004.csv"
 USE_ROUTING = False  # True = Routes (OSRM), False = as the crow flies
 
 COUNTRIES = {"CH", "LI", "AT", "DE"}
