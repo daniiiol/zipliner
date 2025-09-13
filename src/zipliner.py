@@ -13,7 +13,7 @@ nomi = {cc: pgeocode.Nominatim(cc) for cc in COUNTRIES}
 
 df = pd.read_csv(CSV_PATH, sep=';', dtype=str).fillna("")
 
-# Check columns
+# Check required columns
 required_cols = {"source_zip","source_country","destination_zip","destination_country"}
 missing = required_cols - set(df.columns)
 if missing:
@@ -59,11 +59,17 @@ def osrm_route(latlon1, latlon2, attempts=3, timeout=20):
     raise RuntimeError(f"OSRM failed after {attempts} attempts: {last_err}")
 
 def random_color_palette(n):
+    # Use the full HSV color space to get all hues (including blue, green, turquoise, violet, etc.)
+    import math
     palette = []
+    golden_ratio_conj = 0.618033988749895  # for maximum distribution
     for i in range(n):
-        # Evenly distribute hues for higher difference
-        h = i / n
-        rgb = colorsys.hsv_to_rgb(h, 0.7, 0.75)
+        # Distribute hue over the whole spectrum
+        h = (i * golden_ratio_conj) % 1.0
+        # Vary saturation and brightness to get both pastel and vivid colors
+        s = 0.6 + 0.4 * ((i % 3) / 2)  # 0.6, 0.8, 1.0
+        v = 0.7 + 0.3 * (((i // 3) % 2) / 1)  # 0.7, 1.0
+        rgb = colorsys.hsv_to_rgb(h, s, v)
         palette.append('#' + ''.join(f'{int(c*255):02x}' for c in rgb))
     return palette
 
@@ -81,12 +87,15 @@ for idx, row in df.iterrows():
     d_ctry = row["destination_country"]
 
     try:
+
         lat1, lon1, name1, c1 = zip_to_latlon(s_zip, s_ctry)
         lat2, lon2, name2, c2 = zip_to_latlon(d_zip, d_ctry)
 
+        # Add markers for source and destination
         folium.Marker([lat1, lon1], tooltip=f"{s_zip} {c1} – {name1}").add_to(m)
         folium.Marker([lat2, lon2], tooltip=f"{d_zip} {c2} – {name2}").add_to(m)
 
+        # Draw route or straight line
         if USE_ROUTING:
             line = osrm_route((lat1, lon1), (lat2, lon2))
         else:
@@ -101,10 +110,11 @@ for idx, row in df.iterrows():
         ).add_to(m)
 
         all_points.extend([[lat1, lon1], [lat2, lon2]])
-        
+
         print(f"Row {rownum}: {s_zip} {c1} → {d_zip} {c2} OK")
 
     except Exception as e:
+        # Collect information about failed rows
         failures.append({
             "row_number": rownum,
             "source_zip": s_zip,
@@ -115,10 +125,14 @@ for idx, row in df.iterrows():
         })
         continue
 
+
+# Fit map to all points
 if all_points:
     m.fit_bounds(all_points, padding=(30, 30))
 m.save("map.html")
 
+
+# Print summary and save failures if any
 if failures:
     print(f"\nCompleted with warnings: {len(failures)} row(s) failed, {len(df) - len(failures)} succeeded.")
     pd.DataFrame(failures).to_csv("zipliner_failures.csv", index=False, sep=';')
